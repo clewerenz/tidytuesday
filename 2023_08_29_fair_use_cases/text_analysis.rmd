@@ -1,0 +1,55 @@
+---
+title: "Fair Use - Text Analysis"
+---
+
+```{r, message=FALSE}
+library(tm)
+library(SnowballC)
+library(dplyr)
+library(ggplot2)
+library(ggwordcloud)
+load("~/Documents/tidytuesday/2023_08_29_fair_use_cases/fair_use_data.Rdata")
+```
+
+## Make corpus from source documents
+
+```{r, message=FALSE}
+# make text corpus from 'holdings' and add as new column to data table
+holding_corpus <- fair_use_data$holding %>%
+  VectorSource() %>%
+  VCorpus()
+
+# Text Cleaning and Stemming
+holding_corpus <- holding_corpus %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, stopwords("en")) %>%
+  tm_map(stemDocument)
+```
+
+## Make Document-Term-Matrix from text corpus
+
+```{r, message=FALSE}
+# Make Document-Term-Matrix (DTM)
+holding_dtm <- DocumentTermMatrix(holding_corpus)
+inspect(holding_dtm)
+```
+
+### Visualize most frequent terms accross all documents
+
+#### Wordcloud for all Documents
+
+```{r, message=FALSE}
+as.data.frame(colSums(as.matrix(holding_dtm))) %>%
+  mutate(term = row.names(.)) %>%
+  rename(freq = 1) %>%
+  arrange(desc(freq)) %>%
+  slice(1:75) %>%
+  ggplot(aes(label = term, size = freq)) +
+  geom_text_wordcloud(seed = 0, eccentricity = .65, color = "white") +
+  scale_size_area(max_size = 24) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "black"))
+```
+

@@ -1,0 +1,208 @@
+---
+title: "Fair Use Cases"
+format: html
+---
+
+```{r, message=FALSE}
+library(dplyr)
+library(stringr)
+library(stringi)
+library(ggplot2)
+project_root <- here::here("2023_08_29_fair_use_cases")
+```
+
+```{r}
+# read data
+fair_use_cases <- read.csv(
+  paste0(project_root, "/data/fair_use_cases.csv")
+) %>% select(-court, -year, -outcome)
+fair_use_findings <- read.csv(
+  paste0(project_root, "/data/fair_use_findings.csv")
+)
+```
+
+```{r}
+# match the two data sets into one
+# and make some data cleaning
+fair_use_data <- fair_use_cases %>%
+  bind_cols(fair_use_findings) %>%
+  mutate(title = title %>% 
+           str_remove(",$|,\\s+$"),
+         court_clean = court %>% 
+           str_replace("U\\.S\\.", "United States") %>%
+           str_to_lower(),
+         year = str_extract(year, "^[0-9]+")) %>%
+  # mutate(across(where(is.character), str_to_lower)) %>%
+  select(case, title, case_number, court, jurisdiction, year, everything())
+str(fair_use_data)
+```
+
+```{r}
+# evaluate frequency of jurisdiction
+fair_use_data %>%
+  group_by(jurisdiction) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  ungroup() %>%
+  mutate(perc = n/sum(n)*100,
+         label = paste0(n, " (", round(perc, 2), "%)"),
+         jurisdiction = factor(.$jurisdiction, levels = rev(as.character(.$jurisdiction)))) %>%
+  ggplot(aes(x = jurisdiction, y = n, label = label)) +
+  geom_col(fill = "lightblue") +
+  geom_text(hjust = -.1) +
+  scale_y_continuous(limits = c(0,126), expand = c(0,0)) +
+  ggtitle("Number of Cases by Circuit") +
+  coord_flip() +
+  theme_minimal() +
+  theme(axis.title = element_blank())
+```
+
+```{r}
+fair_use_data %>%
+  mutate(jurisdiction = factor(jurisdiction)) %>%
+  group_by(jurisdiction, fair_use_found) %>%
+  count() %>%
+  group_by(jurisdiction) %>%
+  mutate(perc = n/sum(n)*100) %>%
+  ungroup() %>%
+  tidyr::complete(jurisdiction, fair_use_found, 
+                  fill = list(n=0, perc=0)) %>%
+  arrange(jurisdiction, fair_use_found)
+```
+
+```{r}
+plot_labels <- fair_use_data %>%
+  filter(year >= 2013) %>%
+  select(year) %>%
+  unique() %>%
+  tibble() %>%
+  arrange(year)
+fair_use_data %>%
+  filter(year >= 2013) %>%
+  # mutate(year = factor(year)) %>%
+  group_by(year, fair_use_found) %>%
+  count() %>%
+  ungroup() %>%
+  arrange(year, fair_use_found) %>%
+  apply(., 1, function(x){
+    tibble(year = x[1],
+           fair_use_found = rep(x[2], x[3]),
+           point_count = 1:x[3])
+  }) %>%
+  do.call(rbind, .) %>%
+  mutate(point_count = if_else(fair_use_found %in% T, point_count, point_count*-1)) %>%
+  ggplot(aes(x = year, y = point_count, color = fair_use_found, label = year)) +
+  geom_point(shape = "C") +
+  geom_point(shape = 1, size = 3.75) +
+  geom_text(data = plot_labels, aes(x = year, y = 0), color = "white", size = 3.75) +
+  labs(title = "Fair Use Cases by the U.S. Copyright Office",
+       subtitle = "Cases of Fair Use vs. without Fair Use",
+       caption = "Source: U.S. Copyright Office") +
+  theme_void() +
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill = "black"),
+        plot.title = element_text(colour = "white"),
+        plot.subtitle = element_text(colour = "white"),
+        plot.caption = element_text(colour = "white"),
+        legend.text = element_text(color = "white"))
+```
+
+```{r, fig.height=10}
+# make a new list column 'keywords' with 
+# unique values from 'categories' ans 'tags'
+fair_use_data <- fair_use_data %>%
+  mutate(
+    keywords = apply(.[c("categories", "tags")], 1, function(x){
+      x %>%
+        str_split(";|,") %>% 
+        unlist() %>% 
+        str_replace_all("\\s+|\\.$", " ") %>% 
+        str_trim() %>% 
+        unique() %>% 
+        str_to_lower() %>%
+        stri_subset_regex("^[:alnum:]+")
+    }),
+  ) %>%
+  mutate(
+    keywords_clean = lapply(.$keywords, function(x){
+      x[!grepl("circuit|court", x)]
+    })
+  )
+head(fair_use_data$keywords, 3)
+```
+
+```{r}
+# evaluate overall frequency of keywords
+fair_use_data["keywords_clean"] %>% 
+  unlist() %>%
+  table() %>%
+  data.frame() %>%
+  rename("keyword" = 1) %>%
+  arrange(desc(Freq)) %>%
+  mutate(Perc = Freq / sum(Freq) * 100,
+         label = paste0(round(Perc, 2), "% (n=", Freq, ")"),
+         keyword = factor(as.character(.$keyword), 
+                          levels = rev(as.character(.$keyword)))) %>%
+  ggplot(aes(x = keyword, y = Perc, label = label)) + 
+  geom_col(fill = "lightblue") + 
+  geom_text(hjust = -.1, size = 2.5) +
+  scale_y_continuous(limits = c(0,21), expand = c(0,0)) +
+  ylab("Percent") +
+  ggtitle("Frequency of Keywords") +
+  coord_flip() +
+  theme_minimal() +
+  theme(axis.title.y = element_blank())
+```
+
+```{r}
+jur_subsets <- apply(fair_use_data[c("jurisdiction", "keywords_clean")], 1, function(x){
+  data.frame(x[1], x[2])
+}) %>%
+  do.call(rbind, .) %>%
+  split(., ~.$jurisdiction) %>%
+  lapply(., function(x){
+    x %>%
+      group_by(jurisdiction, keywords_clean) %>%
+      count() %>%
+      ungroup() %>%
+      arrange(desc(n))
+  })
+names(jur_subsets)
+```
+
+```{r}
+# split 'title' into claimant and defendend 
+# and recode these values into two new columns
+split_value <- "\\s[Vv]\\.|\\sto\\s"
+fair_use_data <- fair_use_data %>%
+  bind_cols(
+    apply(fair_use_data["title"], 1, function(x){
+      if(grepl(split_value, x)){
+        x <- x %>%
+          str_split(split_value, n = 2) %>%
+          unlist() %>%
+          str_trim()  
+      }else{
+        x <- x %>%
+          str_split(",", n = 2) %>%
+          unlist() %>%
+          str_trim()
+      }
+      data.frame(claimant = x[1],
+                 defendend = x[2])
+    }) %>%
+      do.call(rbind, .)
+  ) %>%
+  mutate(claimant_clean = claimant %>%
+           str_to_lower() %>%
+           str_remove_all("[^[:alnum:]]"),
+         defendend_clean = defendend %>%
+           str_to_lower() %>%
+           str_remove_all("[^[:alnum:]]"))
+```
+
+```{r}
+# save data
+save("fair_use_data", file = "fair_use_data.Rdata")
+```
+

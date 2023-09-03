@@ -1,0 +1,2 @@
+# Text Analysis
+https://towardsdatascience.com/a-light-introduction-to-text-analysis-in-r-ea291a9865a8
