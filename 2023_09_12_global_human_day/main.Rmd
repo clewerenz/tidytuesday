@@ -1,0 +1,150 @@
+---
+title: "Global Human Day"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(sf)
+
+load("data/tt_data.Rdata")
+world_shape <- read_sf("data/world_shapefile/CNTR_RG_60M_2020_4326.shp")
+```
+
+
+```{r, message=FALSE}
+# add country names and region names to all_countries
+all_countries_regions <- all_countries %>%
+  left_join(
+    country_regions %>%
+      select(country_name, region_name, country_iso3) %>%
+      unique(),
+    by = "country_iso3"
+  )
+```
+
+# Data Exploration
+
+```{r, fig.height=10, fig.width=10, message=FALSE}
+# explore time spent for activities by region
+all_countries_regions %>%
+  group_by(region_name, Category) %>%
+  summarise(sum_hours = mean(hoursPerDayCombined)) %>%
+  ungroup() %>%
+  ggplot(aes(x = Category, y = sum_hours, label = round(sum_hours, 2))) +
+  geom_col(fill = "#32AAB5") +
+  geom_text(hjust = -.25) +
+  scale_y_continuous(limits = c(0, 3.5)) +
+  coord_flip() +
+  facet_wrap(~region_name) +
+  labs(title = "Time spent for Activities by Region") +
+  theme_minimal() +
+  theme(axis.title = element_blank())
+```
+
+# Data Visualisation
+
+## Time spent for Food Provision by Region
+
+```{r}
+# Missing Countries in Shapefile
+all_countries_regions %>%
+  filter(!country_iso3 %in% unique(world_shape$ISO3_CODE)) %>%
+  select(country_name, region_name) %>%
+  unique()
+```
+
+
+```{r, message=FALSE}
+# filter data
+## keep only category 'food provision' and count sum of time spent by country
+food_prep_data <- all_countries_regions %>%
+  filter(Category %in% "Food provision") %>%
+  group_by(Category, country_iso3) %>%
+  summarise(food_prep_time_sum = sum(hoursPerDayCombined))
+
+# filter data
+## keep only category 'Experience oriented' and count sum of time spent by country
+expe_orie_data <- all_countries_regions %>%
+  filter(Category %in% "Experience oriented") %>%
+  group_by(Category, country_iso3) %>%
+  summarise(food_prep_time_sum = sum(hoursPerDayCombined))
+```
+
+
+```{r, fig.height=10, fig.width=10}
+# food provision - plot world map
+p_food <- world_shape %>%
+  left_join(food_prep_data, by = c("ISO3_CODE" = "country_iso3")) %>%
+  filter(!CNTR_NAME %in% "Antarctica") %>%
+  ggplot(data = .) +
+  geom_sf(mapping = aes(fill = food_prep_time_sum)) +
+  scale_fill_gradient(
+    low = "#FDF6B5", high = "#E24C80",
+    guide = guide_colourbar(
+      title = "Hours per day\n(mean)",
+      title.position = "top",
+      title.hjust = .5,
+      ticks = F
+    )
+  ) +
+  labs(title = "Food Provision",
+       subtitle = "Providing food to humans, including agriculture and fishing,\nthe processing of food items, cooking, serving, and cleanup\n",
+       caption = "Source: https://doi.org/10.5281/zenodo.7941615") +
+  theme_void() +
+  theme(text = element_text(color = "white"),
+        plot.background = element_rect(fill = "black"),
+        legend.position = "bottom",
+        plot.title = element_text(size = 26),
+        plot.subtitle = element_text(size = 16),
+        plot.margin = margin(15,15,15,15))
+
+p_food
+```
+
+## Time spent for Experience Orientation by Region
+
+```{r, fig.height=10, fig.width=10}
+# food provision - plot world map
+p_experience <- world_shape %>%
+  left_join(expe_orie_data, by = c("ISO3_CODE" = "country_iso3")) %>%
+  filter(!CNTR_NAME %in% "Antarctica") %>%
+  ggplot(data = .) +
+  geom_sf(mapping = aes(fill = food_prep_time_sum)) +
+  scale_fill_gradient(
+    low = "#FDF6B5", high = "#E24C80",
+    guide = guide_colourbar(
+      title = "Hours per day\n(mean)",
+      title.position = "top",
+      title.hjust = .5,
+      ticks = F
+    )
+  ) +
+  labs(title = "Experience Orientation",
+       subtitle = "Engaging in activities to provide desired experiences,including through\nuse of media, interactive hobbies and sports, socializing, and meals\n",
+       caption = "Source: https://doi.org/10.5281/zenodo.7941615") +
+  theme_void() +
+  theme(text = element_text(color = "white"),
+        plot.background = element_rect(fill = "black"),
+        legend.position = "bottom",
+        plot.title = element_text(size = 26),
+        plot.subtitle = element_text(size = 16),
+        plot.margin = margin(15,15,15,15))
+
+p_experience
+```
+
+
+```{r}
+# save plot data
+
+ggsave(plot = p_food, filename = "viz/map_food_provision.png", device = "png", width = 10, height = 10)
+ggsave(plot = p_food, filename = "viz/map_food_provision.svg", device = "svg", width = 10, height = 10)
+
+ggsave(plot = p_experience, filename = "viz/map_experience_orientation.png",device = "png",width = 10, height = 10)
+ggsave(plot = p_experience, filename = "viz/map_experience_orientation.svg",device = "svg",width = 10, height = 10)
+
+save(list = c("p_food", "p_experience"), file = "viz/maps.Rdata")
+```
